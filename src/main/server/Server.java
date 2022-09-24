@@ -9,6 +9,7 @@ import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.PBEKeySpec;
 import java.io.*;
 import java.net.ServerSocket;
+import java.nio.charset.StandardCharsets;
 import java.security.*;
 import java.security.spec.InvalidKeySpecException;
 import java.security.spec.KeySpec;
@@ -87,8 +88,10 @@ public class Server implements Runnable {
         this.logger.setUseParentHandlers(false); // do not print on console
 
         if (testServer) {
-            this.addClient("alice@gmail.com", "Alice", "test");
-            this.addClient("bob@gmail.com", "Bob", "test");
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] pwdHash = digest.digest(new BufferedReader(new FileReader("pwd")).readLine().getBytes(StandardCharsets.UTF_8));
+            this.addClient("alice@gmail.com", "Alice", Arrays.toString(pwdHash));
+            this.addClient("bob@gmail.com", "Bob", Arrays.toString(pwdHash));
             this.annonces.add(new Annonce("alice@gmail.com", Domain.HOUSE, "Big House", "Content of the annonce", 1000, 0));
             this.annonces.add(new Annonce("bob@gmail.com", Domain.HOUSE, "Big House 2", "Content of the annonce 2", 2000, 1));
         }

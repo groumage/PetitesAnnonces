@@ -13,9 +13,13 @@ import javax.crypto.BadPaddingException;
 import javax.crypto.IllegalBlockSizeException;
 import javax.crypto.NoSuchPaddingException;
 import javax.crypto.SecretKey;
+import java.io.BufferedReader;
+import java.io.FileReader;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
+import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.spec.InvalidKeySpecException;
 import java.util.Arrays;
@@ -29,12 +33,16 @@ public class Protocol {
     Server server;
     Client alice;
     Client bob = null;
+    String pwdHash;
 
     @Before
     public void initServerAndClient() throws NoSuchAlgorithmException, IOException, InvalidAlgorithmParameterException, NoSuchPaddingException, IllegalBlockSizeException, BadPaddingException, InvalidKeyException, InterruptedException, InvalidKeySpecException {
         this.server = new Server(true, false);
         this.alice = new Client("alice@gmail.com", "Alice", false);
         new Thread(this.server).start();
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        byte[] pwdHash = digest.digest(new BufferedReader(new FileReader("pwd")).readLine().getBytes(StandardCharsets.UTF_8));
+        this.pwdHash = Arrays.toString(pwdHash);
     }
 
     @Test
@@ -42,7 +50,7 @@ public class Protocol {
         this.alice.openConnection();
         this.alice.requestPublicKeyAndIV();
         await().until(fieldIn(this.alice).ofType(SecretKey.class), notNullValue());
-        this.alice.signUp("alice@gmail.com", "Alice", "test");
+        this.alice.signUp("alice@gmail.com", "Alice", this.pwdHash);
         await().until(() -> this.alice.getLastRequest().getCommand() == ProtocolCommand.SIGN_UP_OK);
 
         Object[] analyzerLogClient = {
@@ -51,7 +59,7 @@ public class Protocol {
                 ClientState.CONNECTED,
                 new Request(ProtocolCommand.REQUEST_EXCHANGE_SERVER_PUBLIC_KEY_AND_SEND_IV, this.alice.getPublicKey().getEncoded(), this.alice.generate16Bytes()),
                 new Request(ProtocolCommand.REQUEST_EXCHANGE_SERVER_PUBLIC_KEY_OK, new Object[] {this.server.getPk().getEncoded()}),
-                new Request(ProtocolCommand.SIGN_UP, "alice@gmail.com", "Alice", "test"),
+                new Request(ProtocolCommand.SIGN_UP, "alice@gmail.com", "Alice", this.pwdHash),
                 new Request(ProtocolCommand.SIGN_UP_OK, "alice@gmail.com", "Alice"),
                 new InternalLogMessage(TokenInternalLogMessage.CLIENT_LOG_SIGN_UP_OK, "alice@gmail.com", "Alice").toString(),
         };
@@ -85,23 +93,23 @@ public class Protocol {
         this.alice.openConnection();
         this.alice.requestPublicKeyAndIV();
         await().until(fieldIn(this.alice).ofType(SecretKey.class), notNullValue());
-        this.alice.signUp("alice@toto.com", "Alice", "test");
+        this.alice.signUp("alice@toto.com", "Alice", this.pwdHash);
         await().until(() -> this.alice.getLastRequest().getCommand() == ProtocolCommand.SIGN_UP_KO);
-        this.alice.signUp("alice@gmail.com", "Prout", "test");
+        this.alice.signUp("alice@gmail.com", "Prout", this.pwdHash);
         await().until(() -> this.alice.getLastRequest().getCommand() == ProtocolCommand.SIGN_UP_KO);
-        this.alice.signUp("alice@toto.com", "Prout", "test");
+        this.alice.signUp("alice@toto.com", "Prout", this.pwdHash);
         await().until(() -> this.alice.getLastRequest().getCommand() == ProtocolCommand.SIGN_UP_KO);
 
         this.bob.openConnection();
         this.bob.requestPublicKeyAndIV();
         await().until(fieldIn(this.bob).ofType(SecretKey.class), notNullValue());
-        this.bob.signUp("alice@gmail.com", "Bob", "test");
+        this.bob.signUp("alice@gmail.com", "Bob", this.pwdHash);
         await().until(() -> this.bob.getLastRequest().getCommand() == ProtocolCommand.SIGN_UP_OK);
 
-        this.alice.signUp("alice@gmail.com", "Alice", "test");
+        this.alice.signUp("alice@gmail.com", "Alice", this.pwdHash);
         await().until(() -> this.alice.getLastRequest().getCommand() == ProtocolCommand.SIGN_UP_KO);
         this.server.setRespondingToRequest(false);
-        this.alice.signUp("alice@gmail.com", "Alice", "test");
+        this.alice.signUp("alice@gmail.com", "Alice", this.pwdHash);
         await().until(() -> this.alice.getLastRequest().getCommand() == ProtocolCommand.SIGN_UP_KO);
 
         Object[] analyzerLogClientAlice = {
@@ -110,19 +118,19 @@ public class Protocol {
                 ClientState.CONNECTED,
                 new Request(ProtocolCommand.REQUEST_EXCHANGE_SERVER_PUBLIC_KEY_AND_SEND_IV, this.alice.getPublicKey().getEncoded(), this.alice.generate16Bytes()),
                 new Request(ProtocolCommand.REQUEST_EXCHANGE_SERVER_PUBLIC_KEY_OK, new Object[] {this.server.getPk().getEncoded()}),
-                new Request(ProtocolCommand.SIGN_UP, "alice@toto.com", "Alice", "test"),
+                new Request(ProtocolCommand.SIGN_UP, "alice@toto.com", "Alice", this.pwdHash),
                 new Request(ProtocolCommand.SIGN_UP_KO, ErrorLogMessage.MAIL_NOT_VALID.getContent()),
                 new InternalLogMessage(TokenInternalLogMessage.CLIENT_LOG_SIGN_UP_KO, ErrorLogMessage.MAIL_NOT_VALID.getContent()).toString(),
-                new Request(ProtocolCommand.SIGN_UP, "alice@gmail.com", "Prout", "test"),
+                new Request(ProtocolCommand.SIGN_UP, "alice@gmail.com", "Prout", this.pwdHash),
                 new Request(ProtocolCommand.SIGN_UP_KO, ErrorLogMessage.NAME_NOT_VALID.getContent()),
                 new InternalLogMessage(TokenInternalLogMessage.CLIENT_LOG_SIGN_UP_KO, ErrorLogMessage.NAME_NOT_VALID.getContent()).toString(),
-                new Request(ProtocolCommand.SIGN_UP, "alice@toto.com", "Prout", "test"), // invalidity of mail is checked first
+                new Request(ProtocolCommand.SIGN_UP, "alice@toto.com", "Prout", this.pwdHash), // invalidity of mail is checked first
                 new Request(ProtocolCommand.SIGN_UP_KO, ErrorLogMessage.MAIL_NOT_VALID.getContent()),
                 new InternalLogMessage(TokenInternalLogMessage.CLIENT_LOG_SIGN_UP_KO, ErrorLogMessage.MAIL_NOT_VALID.getContent()).toString(),
-                new Request(ProtocolCommand.SIGN_UP, "alice@gmail.com", "Alice", "test"),
+                new Request(ProtocolCommand.SIGN_UP, "alice@gmail.com", "Alice", this.pwdHash),
                 new Request(ProtocolCommand.SIGN_UP_KO, ErrorLogMessage.MAIL_ALREADY_TAKEN.getContent()),
                 new InternalLogMessage(TokenInternalLogMessage.CLIENT_LOG_SIGN_UP_KO, ErrorLogMessage.MAIL_ALREADY_TAKEN.getContent()).toString(),
-                new Request(ProtocolCommand.SIGN_UP, "alice@gmail.com", "Alice", "test"),
+                new Request(ProtocolCommand.SIGN_UP, "alice@gmail.com", "Alice", this.pwdHash),
                 new Request(ProtocolCommand.SIGN_UP_KO, ErrorLogMessage.NOT_RESPONDING_TO_REQUEST.getContent()),
                 new InternalLogMessage(TokenInternalLogMessage.CLIENT_LOG_SIGN_UP_KO, ErrorLogMessage.NOT_RESPONDING_TO_REQUEST.getContent()).toString(),
         };
@@ -133,7 +141,7 @@ public class Protocol {
                 ClientState.CONNECTED,
                 new Request(ProtocolCommand.REQUEST_EXCHANGE_SERVER_PUBLIC_KEY_AND_SEND_IV, this.bob.getPublicKey().getEncoded(), this.bob.generate16Bytes()),
                 new Request(ProtocolCommand.REQUEST_EXCHANGE_SERVER_PUBLIC_KEY_OK, new Object[] {this.server.getPk().getEncoded()}),
-                new Request(ProtocolCommand.SIGN_UP, "alice@gmail.com", "Bob", "test"),
+                new Request(ProtocolCommand.SIGN_UP, "alice@gmail.com", "Bob", this.pwdHash),
                 new Request(ProtocolCommand.SIGN_UP_OK, "alice@gmail.com", "Bob"),
                 new InternalLogMessage(TokenInternalLogMessage.CLIENT_LOG_SIGN_UP_OK, "alice@gmail.com", "Bob").toString(),
         };
@@ -196,14 +204,14 @@ public class Protocol {
         this.alice.openConnection();
         this.alice.requestPublicKeyAndIV();
         await().until(fieldIn(this.alice).ofType(SecretKey.class), notNullValue());
-        this.alice.signUp("alice@gmail.com", "Alice", "test");
+        this.alice.signUp("alice@gmail.com", "Alice", this.pwdHash);
         await().until(() -> this.alice.getLastRequest().getCommand() == ProtocolCommand.SIGN_UP_OK);
-        this.alice.signIn("alice@toto.com", "test", true);
+        this.alice.signIn("alice@toto.com", this.pwdHash, true);
         await().until(() -> this.alice.getLastRequest().getCommand() == ProtocolCommand.SIGN_IN_KO);
         this.alice.signIn("alice@gmail.com", "test000", true);
         await().until(() -> this.alice.getLastRequest().getCommand() == ProtocolCommand.SIGN_IN_KO);
         this.server.setRespondingToRequest(false);
-        this.alice.signIn("alice@gmail.com", "test", true);
+        this.alice.signIn("alice@gmail.com", this.pwdHash, true);
         await().until(() -> this.alice.getLastRequest().getCommand() == ProtocolCommand.SIGN_IN_KO);
 
         Object[] analyzerLogClient = {
@@ -212,16 +220,16 @@ public class Protocol {
                 ClientState.CONNECTED,
                 new Request(ProtocolCommand.REQUEST_EXCHANGE_SERVER_PUBLIC_KEY_AND_SEND_IV, this.alice.getPublicKey().getEncoded(), this.alice.generate16Bytes()),
                 new Request(ProtocolCommand.REQUEST_EXCHANGE_SERVER_PUBLIC_KEY_OK, new Object[] {this.server.getPk().getEncoded()}),
-                new Request(ProtocolCommand.SIGN_UP, "alice@gmail.com", "Alice", "test"),
+                new Request(ProtocolCommand.SIGN_UP, "alice@gmail.com", "Alice", this.pwdHash),
                 new Request(ProtocolCommand.SIGN_UP_OK, "alice@gmail.com", "Alice"),
                 new InternalLogMessage(TokenInternalLogMessage.CLIENT_LOG_SIGN_UP_OK, "alice@gmail.com", "Alice").toString(),
-                new Request(ProtocolCommand.SIGN_IN, "alice@toto.com", "test", true),
+                new Request(ProtocolCommand.SIGN_IN, "alice@toto.com", this.pwdHash, true),
                 new Request(ProtocolCommand.SIGN_IN_KO, ErrorLogMessage.COMBINATION_MAIL_PWD_INVALID.getContent()),
                 new InternalLogMessage(TokenInternalLogMessage.CLIENT_LOG_SIGN_IN_KO, ErrorLogMessage.COMBINATION_MAIL_PWD_INVALID.getContent()).toString(),
                 new Request(ProtocolCommand.SIGN_IN, "alice@gmail.com", "test000", true),
                 new Request(ProtocolCommand.SIGN_IN_KO, ErrorLogMessage.COMBINATION_MAIL_PWD_INVALID.getContent()),
                 new InternalLogMessage(TokenInternalLogMessage.CLIENT_LOG_SIGN_IN_KO, ErrorLogMessage.COMBINATION_MAIL_PWD_INVALID.getContent()).toString(),
-                new Request(ProtocolCommand.SIGN_IN, "alice@gmail.com", "test", true),
+                new Request(ProtocolCommand.SIGN_IN, "alice@gmail.com", this.pwdHash, true),
                 new Request(ProtocolCommand.SIGN_IN_KO, ErrorLogMessage.NOT_RESPONDING_TO_REQUEST.getContent()),
                 new InternalLogMessage(TokenInternalLogMessage.CLIENT_LOG_SIGN_IN_KO, ErrorLogMessage.NOT_RESPONDING_TO_REQUEST.getContent()).toString(),
         };
@@ -241,9 +249,9 @@ public class Protocol {
         this.alice.openConnection();
         this.alice.requestPublicKeyAndIV();
         await().until(fieldIn(this.alice).ofType(SecretKey.class), notNullValue());
-        this.alice.signUp("alice@gmail.com", "Alice", "test");
+        this.alice.signUp("alice@gmail.com", "Alice", this.pwdHash);
         await().until(() -> this.alice.getLastRequest().getCommand() == ProtocolCommand.SIGN_UP_OK);
-        this.alice.signIn("alice@gmail.com", "test", false);
+        this.alice.signIn("alice@gmail.com", this.pwdHash, false);
         await().until(() -> this.alice.getLastRequest().getCommand() == ProtocolCommand.SIGN_IN_OK);
 
         Object[] analyzerLogClient = {
@@ -252,10 +260,10 @@ public class Protocol {
                 ClientState.CONNECTED,
                 new Request(ProtocolCommand.REQUEST_EXCHANGE_SERVER_PUBLIC_KEY_AND_SEND_IV, this.alice.getPublicKey().getEncoded(), this.alice.generate16Bytes()),
                 new Request(ProtocolCommand.REQUEST_EXCHANGE_SERVER_PUBLIC_KEY_OK, new Object[] {this.server.getPk().getEncoded()}),
-                new Request(ProtocolCommand.SIGN_UP, "alice@gmail.com", "Alice", "test"),
+                new Request(ProtocolCommand.SIGN_UP, "alice@gmail.com", "Alice", this.pwdHash),
                 new Request(ProtocolCommand.SIGN_UP_OK, "alice@gmail.com", "Alice"),
                 new InternalLogMessage(TokenInternalLogMessage.CLIENT_LOG_SIGN_UP_OK, "alice@gmail.com", "Alice").toString(),
-                new Request(ProtocolCommand.SIGN_IN, "alice@gmail.com", "test", false),
+                new Request(ProtocolCommand.SIGN_IN, "alice@gmail.com", this.pwdHash, false),
                 new Request(ProtocolCommand.SIGN_IN_OK, "Alice"),
                 ClientState.LOGGED,
                 new InternalLogMessage(TokenInternalLogMessage.CLIENT_LOG_SIGN_IN_OK, "alice@gmail.com").toString(),
@@ -276,9 +284,9 @@ public class Protocol {
         this.alice.openConnection();
         this.alice.requestPublicKeyAndIV();
         await().until(fieldIn(this.alice).ofType(SecretKey.class), notNullValue());
-        this.alice.signUp("alice@gmail.com", "Alice", "test");
+        this.alice.signUp("alice@gmail.com", "Alice", this.pwdHash);
         await().until(() -> this.alice.getLastRequest().getCommand() == ProtocolCommand.SIGN_UP_OK);
-        this.alice.signIn("alice@gmail.com", "test", false);
+        this.alice.signIn("alice@gmail.com", this.pwdHash, false);
         await().until(() -> this.alice.getLastRequest().getCommand() == ProtocolCommand.SIGN_IN_OK);
         this.alice.signOut();
         await().until(() -> this.alice.getLastRequest().getCommand() == ProtocolCommand.SIGN_OUT_OK);
@@ -289,10 +297,10 @@ public class Protocol {
                 ClientState.CONNECTED,
                 new Request(ProtocolCommand.REQUEST_EXCHANGE_SERVER_PUBLIC_KEY_AND_SEND_IV, this.alice.getPublicKey().getEncoded(), this.alice.generate16Bytes()),
                 new Request(ProtocolCommand.REQUEST_EXCHANGE_SERVER_PUBLIC_KEY_OK, new Object[] {this.server.getPk().getEncoded()}),
-                new Request(ProtocolCommand.SIGN_UP, "alice@gmail.com", "Alice", "test"),
+                new Request(ProtocolCommand.SIGN_UP, "alice@gmail.com", "Alice", this.pwdHash),
                 new Request(ProtocolCommand.SIGN_UP_OK, "alice@gmail.com", "Alice"),
                 new InternalLogMessage(TokenInternalLogMessage.CLIENT_LOG_SIGN_UP_OK, "alice@gmail.com", "Alice").toString(),
-                new Request(ProtocolCommand.SIGN_IN, "alice@gmail.com", "test", false),
+                new Request(ProtocolCommand.SIGN_IN, "alice@gmail.com", this.pwdHash, false),
                 new Request(ProtocolCommand.SIGN_IN_OK, "Alice"),
                 ClientState.LOGGED,
                 new InternalLogMessage(TokenInternalLogMessage.CLIENT_LOG_SIGN_IN_OK, "alice@gmail.com").toString(),
@@ -317,9 +325,9 @@ public class Protocol {
         this.alice.openConnection();
         this.alice.requestPublicKeyAndIV();
         await().until(fieldIn(this.alice).ofType(SecretKey.class), notNullValue());
-        this.alice.signUp("alice@gmail.com", "Alice", "test");
+        this.alice.signUp("alice@gmail.com", "Alice", this.pwdHash);
         await().until(() -> this.alice.getLastRequest().getCommand() == ProtocolCommand.SIGN_UP_OK);
-        this.alice.signIn("alice@gmail.com", "test", false);
+        this.alice.signIn("alice@gmail.com", this.pwdHash, false);
         await().until(() -> this.alice.getLastRequest().getCommand() == ProtocolCommand.SIGN_IN_OK);
         this.server.setRespondingToRequest(false);
         this.alice.signOut();
@@ -331,10 +339,10 @@ public class Protocol {
                 ClientState.CONNECTED,
                 new Request(ProtocolCommand.REQUEST_EXCHANGE_SERVER_PUBLIC_KEY_AND_SEND_IV, this.alice.getPublicKey().getEncoded(), this.alice.generate16Bytes()),
                 new Request(ProtocolCommand.REQUEST_EXCHANGE_SERVER_PUBLIC_KEY_OK, new Object[] {this.server.getPk().getEncoded()}),
-                new Request(ProtocolCommand.SIGN_UP, "alice@gmail.com", "Alice", "test"),
+                new Request(ProtocolCommand.SIGN_UP, "alice@gmail.com", "Alice", this.pwdHash),
                 new Request(ProtocolCommand.SIGN_UP_OK, "alice@gmail.com", "Alice"),
                 new InternalLogMessage(TokenInternalLogMessage.CLIENT_LOG_SIGN_UP_OK, "alice@gmail.com", "Alice").toString(),
-                new Request(ProtocolCommand.SIGN_IN, "alice@gmail.com", "test", false),
+                new Request(ProtocolCommand.SIGN_IN, "alice@gmail.com", this.pwdHash, false),
                 new Request(ProtocolCommand.SIGN_IN_OK, "Alice"),
                 ClientState.LOGGED,
                 new InternalLogMessage(TokenInternalLogMessage.CLIENT_LOG_SIGN_IN_OK, "alice@gmail.com").toString(),
@@ -374,9 +382,9 @@ public class Protocol {
         this.alice.openConnection();
         this.alice.requestPublicKeyAndIV();
         await().until(fieldIn(this.alice).ofType(SecretKey.class), notNullValue());
-        this.alice.signUp("alice@gmail.com", "Alice", "test");
+        this.alice.signUp("alice@gmail.com", "Alice", this.pwdHash);
         await().until(() -> this.alice.getLastRequest().getCommand() == ProtocolCommand.SIGN_UP_OK);
-        this.alice.signIn("alice@gmail.com", "test", false);
+        this.alice.signIn("alice@gmail.com", this.pwdHash, false);
         await().until(() -> this.alice.getLastRequest().getCommand() == ProtocolCommand.SIGN_IN_OK);
         this.alice.domainList();
         await().until(() -> this.alice.getLastRequest().getCommand() == ProtocolCommand.DOMAINS_LIST_OK);
@@ -391,10 +399,10 @@ public class Protocol {
                 ClientState.CONNECTED,
                 new Request(ProtocolCommand.REQUEST_EXCHANGE_SERVER_PUBLIC_KEY_AND_SEND_IV, this.alice.getPublicKey().getEncoded(), this.alice.generate16Bytes()),
                 new Request(ProtocolCommand.REQUEST_EXCHANGE_SERVER_PUBLIC_KEY_OK, new Object[] {this.server.getPk().getEncoded()}),
-                new Request(ProtocolCommand.SIGN_UP, "alice@gmail.com", "Alice", "test"),
+                new Request(ProtocolCommand.SIGN_UP, "alice@gmail.com", "Alice", this.pwdHash),
                 new Request(ProtocolCommand.SIGN_UP_OK, "alice@gmail.com", "Alice"),
                 new InternalLogMessage(TokenInternalLogMessage.CLIENT_LOG_SIGN_UP_OK, "alice@gmail.com", "Alice").toString(),
-                new Request(ProtocolCommand.SIGN_IN, "alice@gmail.com", "test", false),
+                new Request(ProtocolCommand.SIGN_IN, "alice@gmail.com", this.pwdHash, false),
                 new Request(ProtocolCommand.SIGN_IN_OK, "Alice"),
                 ClientState.LOGGED,
                 new InternalLogMessage(TokenInternalLogMessage.CLIENT_LOG_SIGN_IN_OK, "alice@gmail.com").toString(),
@@ -436,9 +444,9 @@ public class Protocol {
         this.alice.openConnection();
         this.alice.requestPublicKeyAndIV();
         await().until(fieldIn(this.alice).ofType(SecretKey.class), notNullValue());
-        this.alice.signUp("alice@gmail.com", "Alice", "test");
+        this.alice.signUp("alice@gmail.com", "Alice", this.pwdHash);
         await().until(() -> this.alice.getLastRequest().getCommand() == ProtocolCommand.SIGN_UP_OK);
-        this.alice.signIn("alice@gmail.com", "test", false);
+        this.alice.signIn("alice@gmail.com", this.pwdHash, false);
         await().until(() -> this.alice.getLastRequest().getCommand() == ProtocolCommand.SIGN_IN_OK);
         // todo: remove domainList() from all tets if it is not necessary
         this.alice.annonceFromDomain(Domain.HOUSE);
@@ -453,10 +461,10 @@ public class Protocol {
                 ClientState.CONNECTED,
                 new Request(ProtocolCommand.REQUEST_EXCHANGE_SERVER_PUBLIC_KEY_AND_SEND_IV, this.alice.getPublicKey().getEncoded(), this.alice.generate16Bytes()),
                 new Request(ProtocolCommand.REQUEST_EXCHANGE_SERVER_PUBLIC_KEY_OK, new Object[] {this.server.getPk().getEncoded()}),
-                new Request(ProtocolCommand.SIGN_UP, "alice@gmail.com", "Alice", "test"),
+                new Request(ProtocolCommand.SIGN_UP, "alice@gmail.com", "Alice", this.pwdHash),
                 new Request(ProtocolCommand.SIGN_UP_OK, "alice@gmail.com", "Alice"),
                 new InternalLogMessage(TokenInternalLogMessage.CLIENT_LOG_SIGN_UP_OK, "alice@gmail.com", "Alice").toString(),
-                new Request(ProtocolCommand.SIGN_IN, "alice@gmail.com", "test", false),
+                new Request(ProtocolCommand.SIGN_IN, "alice@gmail.com", this.pwdHash, false),
                 new Request(ProtocolCommand.SIGN_IN_OK, "Alice"),
                 ClientState.LOGGED,
                 new InternalLogMessage(TokenInternalLogMessage.CLIENT_LOG_SIGN_IN_OK, "alice@gmail.com").toString(),
@@ -488,9 +496,9 @@ public class Protocol {
         this.alice.openConnection();
         this.alice.requestPublicKeyAndIV();
         await().until(fieldIn(this.alice).ofType(SecretKey.class), notNullValue());
-        this.alice.signUp("alice@gmail.com", "Alice", "test");
+        this.alice.signUp("alice@gmail.com", "Alice", this.pwdHash);
         await().until(() -> this.alice.getLastRequest().getCommand() == ProtocolCommand.SIGN_UP_OK);
-        this.alice.signIn("alice@gmail.com", "test", false);
+        this.alice.signIn("alice@gmail.com", this.pwdHash, false);
         await().until(() -> this.alice.getLastRequest().getCommand() == ProtocolCommand.SIGN_IN_OK);
         this.alice.domainList();
         await().until(() -> this.alice.getLastRequest().getCommand() == ProtocolCommand.DOMAINS_LIST_OK);
@@ -503,10 +511,10 @@ public class Protocol {
                 ClientState.CONNECTED,
                 new Request(ProtocolCommand.REQUEST_EXCHANGE_SERVER_PUBLIC_KEY_AND_SEND_IV, this.alice.getPublicKey().getEncoded(), this.alice.generate16Bytes()),
                 new Request(ProtocolCommand.REQUEST_EXCHANGE_SERVER_PUBLIC_KEY_OK, new Object[] {this.server.getPk().getEncoded()}),
-                new Request(ProtocolCommand.SIGN_UP, "alice@gmail.com", "Alice", "test"),
+                new Request(ProtocolCommand.SIGN_UP, "alice@gmail.com", "Alice", this.pwdHash),
                 new Request(ProtocolCommand.SIGN_UP_OK, "alice@gmail.com", "Alice"),
                 new InternalLogMessage(TokenInternalLogMessage.CLIENT_LOG_SIGN_UP_OK, "alice@gmail.com", "Alice").toString(),
-                new Request(ProtocolCommand.SIGN_IN, "alice@gmail.com", "test", false),
+                new Request(ProtocolCommand.SIGN_IN, "alice@gmail.com", this.pwdHash, false),
                 new Request(ProtocolCommand.SIGN_IN_OK, "Alice"),
                 ClientState.LOGGED,
                 new InternalLogMessage(TokenInternalLogMessage.CLIENT_LOG_SIGN_IN_OK, "alice@gmail.com").toString(),
@@ -542,9 +550,9 @@ public class Protocol {
         this.alice.openConnection();
         this.alice.requestPublicKeyAndIV();
         await().until(fieldIn(this.alice).ofType(SecretKey.class), notNullValue());
-        this.alice.signUp("alice@gmail.com", "Alice", "test");
+        this.alice.signUp("alice@gmail.com", "Alice", this.pwdHash);
         await().until(() -> this.alice.getLastRequest().getCommand() == ProtocolCommand.SIGN_UP_OK);
-        this.alice.signIn("alice@gmail.com", "test", false);
+        this.alice.signIn("alice@gmail.com", this.pwdHash, false);
         await().until(() -> this.alice.getLastRequest().getCommand() == ProtocolCommand.SIGN_IN_OK);
         this.alice.createAnnonce(Domain.HOUSE, annonce1Title, annonce1Descriptif, annonce1Price);
         await().until(() -> this.alice.getLastRequest().getCommand() == ProtocolCommand.CREATE_ANNONCE_OK);
@@ -557,10 +565,10 @@ public class Protocol {
                 ClientState.CONNECTED,
                 new Request(ProtocolCommand.REQUEST_EXCHANGE_SERVER_PUBLIC_KEY_AND_SEND_IV, this.alice.getPublicKey().getEncoded(), this.alice.generate16Bytes()),
                 new Request(ProtocolCommand.REQUEST_EXCHANGE_SERVER_PUBLIC_KEY_OK, new Object[] {this.server.getPk().getEncoded()}),
-                new Request(ProtocolCommand.SIGN_UP, "alice@gmail.com", "Alice", "test"),
+                new Request(ProtocolCommand.SIGN_UP, "alice@gmail.com", "Alice", this.pwdHash),
                 new Request(ProtocolCommand.SIGN_UP_OK, "alice@gmail.com", "Alice"),
                 new InternalLogMessage(TokenInternalLogMessage.CLIENT_LOG_SIGN_UP_OK, "alice@gmail.com", "Alice").toString(),
-                new Request(ProtocolCommand.SIGN_IN, "alice@gmail.com", "test", false),
+                new Request(ProtocolCommand.SIGN_IN, "alice@gmail.com", this.pwdHash, false),
                 new Request(ProtocolCommand.SIGN_IN_OK, "Alice"),
                 ClientState.LOGGED,
                 new InternalLogMessage(TokenInternalLogMessage.CLIENT_LOG_SIGN_IN_OK, "alice@gmail.com").toString(),
@@ -599,17 +607,17 @@ public class Protocol {
         this.alice.openConnection();
         this.alice.requestPublicKeyAndIV();
         await().until(fieldIn(this.alice).ofType(SecretKey.class), notNullValue());
-        this.alice.signUp("alice@gmail.com", "Alice", "test");
+        this.alice.signUp("alice@gmail.com", "Alice", this.pwdHash);
         await().until(() -> this.alice.getLastRequest().getCommand() == ProtocolCommand.SIGN_UP_OK);
-        this.alice.signIn("alice@gmail.com", "test", false);
+        this.alice.signIn("alice@gmail.com", this.pwdHash, false);
         await().until(() -> this.alice.getLastRequest().getCommand() == ProtocolCommand.SIGN_IN_OK);
 
         this.bob.openConnection();
         this.bob.requestPublicKeyAndIV();
         await().until(fieldIn(this.bob).ofType(SecretKey.class), notNullValue());
-        this.bob.signUp("bob@gmail.com", "Bob", "test");
+        this.bob.signUp("bob@gmail.com", "Bob", this.pwdHash);
         await().until(() -> this.bob.getLastRequest().getCommand() == ProtocolCommand.SIGN_UP_OK);
-        this.bob.signIn("bob@gmail.com", "test", false);
+        this.bob.signIn("bob@gmail.com", this.pwdHash, false);
         await().until(() -> this.alice.getLastRequest().getCommand() == ProtocolCommand.SIGN_IN_OK);
 
         this.alice.createAnnonce(Domain.HOUSE, annonce1Title, annonce1Descriptif, annonce1Price);
@@ -626,10 +634,10 @@ public class Protocol {
                 ClientState.CONNECTED,
                 new Request(ProtocolCommand.REQUEST_EXCHANGE_SERVER_PUBLIC_KEY_AND_SEND_IV, this.alice.getPublicKey().getEncoded(), this.alice.generate16Bytes()),
                 new Request(ProtocolCommand.REQUEST_EXCHANGE_SERVER_PUBLIC_KEY_OK, new Object[] {this.server.getPk().getEncoded()}),
-                new Request(ProtocolCommand.SIGN_UP, "alice@gmail.com", "Alice", "test"),
+                new Request(ProtocolCommand.SIGN_UP, "alice@gmail.com", "Alice", this.pwdHash),
                 new Request(ProtocolCommand.SIGN_UP_OK, "alice@gmail.com", "Alice"),
                 new InternalLogMessage(TokenInternalLogMessage.CLIENT_LOG_SIGN_UP_OK, "alice@gmail.com", "Alice").toString(),
-                new Request(ProtocolCommand.SIGN_IN, "alice@gmail.com", "test", false),
+                new Request(ProtocolCommand.SIGN_IN, "alice@gmail.com", this.pwdHash, false),
                 new Request(ProtocolCommand.SIGN_IN_OK, "Alice"),
                 ClientState.LOGGED,
                 new InternalLogMessage(TokenInternalLogMessage.CLIENT_LOG_SIGN_IN_OK, "alice@gmail.com").toString(),
@@ -647,10 +655,10 @@ public class Protocol {
                 ClientState.CONNECTED,
                 new Request(ProtocolCommand.REQUEST_EXCHANGE_SERVER_PUBLIC_KEY_AND_SEND_IV, this.bob.getPublicKey().getEncoded(), this.bob.generate16Bytes()),
                 new Request(ProtocolCommand.REQUEST_EXCHANGE_SERVER_PUBLIC_KEY_OK, new Object[] {this.server.getPk().getEncoded()}),
-                new Request(ProtocolCommand.SIGN_UP, "bob@gmail.com", "Bob", "test"),
+                new Request(ProtocolCommand.SIGN_UP, "bob@gmail.com", "Bob", this.pwdHash),
                 new Request(ProtocolCommand.SIGN_UP_OK, "bob@gmail.com", "Bob"),
                 new InternalLogMessage(TokenInternalLogMessage.CLIENT_LOG_SIGN_UP_OK, "bob@gmail.com", "Bob").toString(),
-                new Request(ProtocolCommand.SIGN_IN, "bob@gmail.com", "test", false),
+                new Request(ProtocolCommand.SIGN_IN, "bob@gmail.com", this.pwdHash, false),
                 new Request(ProtocolCommand.SIGN_IN_OK, "Bob"),
                 ClientState.LOGGED,
                 new InternalLogMessage(TokenInternalLogMessage.CLIENT_LOG_SIGN_IN_OK, "bob@gmail.com").toString(),
@@ -683,9 +691,9 @@ public class Protocol {
         this.alice.openConnection();
         this.alice.requestPublicKeyAndIV();
         await().until(fieldIn(this.alice).ofType(SecretKey.class), notNullValue());
-        this.alice.signUp("alice@gmail.com", "Alice", "test");
+        this.alice.signUp("alice@gmail.com", "Alice", this.pwdHash);
         await().until(() -> this.alice.getLastRequest().getCommand() == ProtocolCommand.SIGN_UP_OK);
-        this.alice.signIn("alice@gmail.com", "test", false);
+        this.alice.signIn("alice@gmail.com", this.pwdHash, false);
         await().until(() -> this.alice.getLastRequest().getCommand() == ProtocolCommand.SIGN_IN_OK);
         this.alice.createAnnonce(Domain.HOUSE, annonce1Title, annonce1Descriptif, annonce1Price);
         await().until(() -> this.alice.getLastRequest().getCommand() == ProtocolCommand.CREATE_ANNONCE_OK);
@@ -698,10 +706,10 @@ public class Protocol {
                 ClientState.CONNECTED,
                 new Request(ProtocolCommand.REQUEST_EXCHANGE_SERVER_PUBLIC_KEY_AND_SEND_IV, this.alice.getPublicKey().getEncoded(), this.alice.generate16Bytes()),
                 new Request(ProtocolCommand.REQUEST_EXCHANGE_SERVER_PUBLIC_KEY_OK, new Object[] {this.server.getPk().getEncoded()}),
-                new Request(ProtocolCommand.SIGN_UP, "alice@gmail.com", "Alice", "test"),
+                new Request(ProtocolCommand.SIGN_UP, "alice@gmail.com", "Alice", this.pwdHash),
                 new Request(ProtocolCommand.SIGN_UP_OK, "alice@gmail.com", "Alice"),
                 new InternalLogMessage(TokenInternalLogMessage.CLIENT_LOG_SIGN_UP_OK, "alice@gmail.com", "Alice").toString(),
-                new Request(ProtocolCommand.SIGN_IN, "alice@gmail.com", "test", false),
+                new Request(ProtocolCommand.SIGN_IN, "alice@gmail.com", this.pwdHash, false),
                 new Request(ProtocolCommand.SIGN_IN_OK, "Alice"),
                 ClientState.LOGGED,
                 new InternalLogMessage(TokenInternalLogMessage.CLIENT_LOG_SIGN_IN_OK, "alice@gmail.com").toString(),
@@ -737,17 +745,17 @@ public class Protocol {
         this.alice.openConnection();
         this.alice.requestPublicKeyAndIV();
         await().until(fieldIn(this.alice).ofType(SecretKey.class), notNullValue());
-        this.alice.signUp("alice@gmail.com", "Alice", "test");
+        this.alice.signUp("alice@gmail.com", "Alice", this.pwdHash);
         await().until(() -> this.alice.getLastRequest().getCommand() == ProtocolCommand.SIGN_UP_OK);
-        this.alice.signIn("alice@gmail.com", "test", false);
+        this.alice.signIn("alice@gmail.com", this.pwdHash, false);
         await().until(() -> this.alice.getLastRequest().getCommand() == ProtocolCommand.SIGN_IN_OK);
 
         this.bob.openConnection();
         this.bob.requestPublicKeyAndIV();
         await().until(fieldIn(this.bob).ofType(SecretKey.class), notNullValue());
-        this.bob.signUp("bob@gmail.com", "Bob", "test");
+        this.bob.signUp("bob@gmail.com", "Bob", this.pwdHash);
         await().until(() -> this.bob.getLastRequest().getCommand() == ProtocolCommand.SIGN_UP_OK);
-        this.bob.signIn("bob@gmail.com", "test", false);
+        this.bob.signIn("bob@gmail.com", this.pwdHash, false);
         await().until(() -> this.alice.getLastRequest().getCommand() == ProtocolCommand.SIGN_IN_OK);
 
         this.alice.createAnnonce(Domain.HOUSE, annonce1Title, annonce1Descriptif, annonce1Price);
@@ -764,10 +772,10 @@ public class Protocol {
                 ClientState.CONNECTED,
                 new Request(ProtocolCommand.REQUEST_EXCHANGE_SERVER_PUBLIC_KEY_AND_SEND_IV, this.alice.getPublicKey().getEncoded(), this.alice.generate16Bytes()),
                 new Request(ProtocolCommand.REQUEST_EXCHANGE_SERVER_PUBLIC_KEY_OK, new Object[] {this.server.getPk().getEncoded()}),
-                new Request(ProtocolCommand.SIGN_UP, "alice@gmail.com", "Alice", "test"),
+                new Request(ProtocolCommand.SIGN_UP, "alice@gmail.com", "Alice", this.pwdHash),
                 new Request(ProtocolCommand.SIGN_UP_OK, "alice@gmail.com", "Alice"),
                 new InternalLogMessage(TokenInternalLogMessage.CLIENT_LOG_SIGN_UP_OK, "alice@gmail.com", "Alice").toString(),
-                new Request(ProtocolCommand.SIGN_IN, "alice@gmail.com", "test", false),
+                new Request(ProtocolCommand.SIGN_IN, "alice@gmail.com", this.pwdHash, false),
                 new Request(ProtocolCommand.SIGN_IN_OK, "Alice"),
                 ClientState.LOGGED,
                 new InternalLogMessage(TokenInternalLogMessage.CLIENT_LOG_SIGN_IN_OK, "alice@gmail.com").toString(),
@@ -785,10 +793,10 @@ public class Protocol {
                 ClientState.CONNECTED,
                 new Request(ProtocolCommand.REQUEST_EXCHANGE_SERVER_PUBLIC_KEY_AND_SEND_IV, this.bob.getPublicKey().getEncoded(), this.bob.generate16Bytes()),
                 new Request(ProtocolCommand.REQUEST_EXCHANGE_SERVER_PUBLIC_KEY_OK, new Object[] {this.server.getPk().getEncoded()}),
-                new Request(ProtocolCommand.SIGN_UP, "bob@gmail.com", "Bob", "test"),
+                new Request(ProtocolCommand.SIGN_UP, "bob@gmail.com", "Bob", this.pwdHash),
                 new Request(ProtocolCommand.SIGN_UP_OK, "bob@gmail.com", "Bob"),
                 new InternalLogMessage(TokenInternalLogMessage.CLIENT_LOG_SIGN_UP_OK, "bob@gmail.com", "Bob").toString(),
-                new Request(ProtocolCommand.SIGN_IN, "bob@gmail.com", "test", false),
+                new Request(ProtocolCommand.SIGN_IN, "bob@gmail.com", this.pwdHash, false),
                 new Request(ProtocolCommand.SIGN_IN_OK, "Bob"),
                 ClientState.LOGGED,
                 new InternalLogMessage(TokenInternalLogMessage.CLIENT_LOG_SIGN_IN_OK, "bob@gmail.com").toString(),
@@ -820,9 +828,9 @@ public class Protocol {
         this.alice.openConnection();
         this.alice.requestPublicKeyAndIV();
         await().until(fieldIn(this.alice).ofType(SecretKey.class), notNullValue());
-        this.alice.signUp("alice@gmail.com", "Alice", "test");
+        this.alice.signUp("alice@gmail.com", "Alice", this.pwdHash);
         await().until(() -> this.alice.getLastRequest().getCommand() == ProtocolCommand.SIGN_UP_OK);
-        this.alice.signIn("alice@gmail.com", "test", false);
+        this.alice.signIn("alice@gmail.com", this.pwdHash, false);
         await().until(() -> this.alice.getLastRequest().getCommand() == ProtocolCommand.SIGN_IN_OK);
         this.alice.domainList();
         await().until(() -> this.alice.getLastRequest().getCommand() == ProtocolCommand.DOMAINS_LIST_OK);
@@ -836,10 +844,10 @@ public class Protocol {
                 ClientState.CONNECTED,
                 new Request(ProtocolCommand.REQUEST_EXCHANGE_SERVER_PUBLIC_KEY_AND_SEND_IV, this.alice.getPublicKey().getEncoded(), this.alice.generate16Bytes()),
                 new Request(ProtocolCommand.REQUEST_EXCHANGE_SERVER_PUBLIC_KEY_OK, new Object[] {this.server.getPk().getEncoded()}),
-                new Request(ProtocolCommand.SIGN_UP, "alice@gmail.com", "Alice", "test"),
+                new Request(ProtocolCommand.SIGN_UP, "alice@gmail.com", "Alice", this.pwdHash),
                 new Request(ProtocolCommand.SIGN_UP_OK, "alice@gmail.com", "Alice"),
                 new InternalLogMessage(TokenInternalLogMessage.CLIENT_LOG_SIGN_UP_OK, "alice@gmail.com", "Alice").toString(),
-                new Request(ProtocolCommand.SIGN_IN, "alice@gmail.com", "test", false),
+                new Request(ProtocolCommand.SIGN_IN, "alice@gmail.com", this.pwdHash, false),
                 new Request(ProtocolCommand.SIGN_IN_OK, "Alice"),
                 ClientState.LOGGED,
                 new InternalLogMessage(TokenInternalLogMessage.CLIENT_LOG_SIGN_IN_OK, "alice@gmail.com").toString(),
@@ -866,9 +874,9 @@ public class Protocol {
         this.alice.openConnection();
         this.alice.requestPublicKeyAndIV();
         await().until(fieldIn(this.alice).ofType(SecretKey.class), notNullValue());
-        this.alice.signUp("alice@gmail.com", "Alice", "test");
+        this.alice.signUp("alice@gmail.com", "Alice", this.pwdHash);
         await().until(() -> this.alice.getLastRequest().getCommand() == ProtocolCommand.SIGN_UP_OK);
-        this.alice.signIn("alice@gmail.com", "test", false);
+        this.alice.signIn("alice@gmail.com", this.pwdHash, false);
         await().until(() -> this.alice.getLastRequest().getCommand() == ProtocolCommand.SIGN_IN_OK);
         this.alice.domainList();
         await().until(() -> this.alice.getLastRequest().getCommand() == ProtocolCommand.DOMAINS_LIST_OK);
@@ -879,10 +887,10 @@ public class Protocol {
                 ClientState.CONNECTED,
                 new Request(ProtocolCommand.REQUEST_EXCHANGE_SERVER_PUBLIC_KEY_AND_SEND_IV, this.alice.getPublicKey().getEncoded(), this.alice.generate16Bytes()),
                 new Request(ProtocolCommand.REQUEST_EXCHANGE_SERVER_PUBLIC_KEY_OK, new Object[]{this.server.getPk().getEncoded()}),
-                new Request(ProtocolCommand.SIGN_UP, "alice@gmail.com", "Alice", "test"),
+                new Request(ProtocolCommand.SIGN_UP, "alice@gmail.com", "Alice", this.pwdHash),
                 new Request(ProtocolCommand.SIGN_UP_OK, "alice@gmail.com", "Alice"),
                 new InternalLogMessage(TokenInternalLogMessage.CLIENT_LOG_SIGN_UP_OK, "alice@gmail.com", "Alice").toString(),
-                new Request(ProtocolCommand.SIGN_IN, "alice@gmail.com", "test", false),
+                new Request(ProtocolCommand.SIGN_IN, "alice@gmail.com", this.pwdHash, false),
                 new Request(ProtocolCommand.SIGN_IN_OK, "Alice"),
                 ClientState.LOGGED,
                 new InternalLogMessage(TokenInternalLogMessage.CLIENT_LOG_SIGN_IN_OK, "alice@gmail.com").toString(),
@@ -906,9 +914,9 @@ public class Protocol {
         this.alice.openConnection();
         this.alice.requestPublicKeyAndIV();
         await().until(fieldIn(this.alice).ofType(SecretKey.class), notNullValue());
-        this.alice.signUp("alice@gmail.com", "Alice", "test");
+        this.alice.signUp("alice@gmail.com", "Alice", this.pwdHash);
         await().until(() -> this.alice.getLastRequest().getCommand() == ProtocolCommand.SIGN_UP_OK);
-        this.alice.signIn("alice@gmail.com", "test", false);
+        this.alice.signIn("alice@gmail.com", this.pwdHash, false);
         await().until(() -> this.alice.getLastRequest().getCommand() == ProtocolCommand.SIGN_IN_OK);
         this.server.setRespondingToRequest(false);
         this.alice.domainList();
@@ -920,10 +928,10 @@ public class Protocol {
                 ClientState.CONNECTED,
                 new Request(ProtocolCommand.REQUEST_EXCHANGE_SERVER_PUBLIC_KEY_AND_SEND_IV, this.alice.getPublicKey().getEncoded(), this.alice.generate16Bytes()),
                 new Request(ProtocolCommand.REQUEST_EXCHANGE_SERVER_PUBLIC_KEY_OK, new Object[]{this.server.getPk().getEncoded()}),
-                new Request(ProtocolCommand.SIGN_UP, "alice@gmail.com", "Alice", "test"),
+                new Request(ProtocolCommand.SIGN_UP, "alice@gmail.com", "Alice", this.pwdHash),
                 new Request(ProtocolCommand.SIGN_UP_OK, "alice@gmail.com", "Alice"),
                 new InternalLogMessage(TokenInternalLogMessage.CLIENT_LOG_SIGN_UP_OK, "alice@gmail.com", "Alice").toString(),
-                new Request(ProtocolCommand.SIGN_IN, "alice@gmail.com", "test", false),
+                new Request(ProtocolCommand.SIGN_IN, "alice@gmail.com", this.pwdHash, false),
                 new Request(ProtocolCommand.SIGN_IN_OK, "Alice"),
                 ClientState.LOGGED,
                 new InternalLogMessage(TokenInternalLogMessage.CLIENT_LOG_SIGN_IN_OK, "alice@gmail.com").toString(),
