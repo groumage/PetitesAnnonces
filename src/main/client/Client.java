@@ -14,6 +14,7 @@ import javax.swing.*;
 import java.io.*;
 import java.net.Socket;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.security.*;
 import java.security.spec.InvalidKeySpecException;
 import java.security.spec.KeySpec;
@@ -428,9 +429,12 @@ public class Client implements Runnable, ClientToServerRequestProtocol, ClientPr
         return new SecretKeySpec(factory.generateSecret(spec).getEncoded(), "AES");
     }
 
-    public byte[] generate16Bytes() {
-        if (TEST)
-            return "initializaVe".getBytes();
+    public byte[] generate16Bytes() throws NoSuchAlgorithmException, IOException {
+        if (TEST) {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] pwdHash = digest.digest(new BufferedReader(new FileReader("pwd")).readLine().getBytes(StandardCharsets.UTF_8));
+            return Arrays.copyOfRange(pwdHash, 0, 12);
+        }
         else {
             byte[] iv = new byte[12];
             new SecureRandom().nextBytes(iv);
