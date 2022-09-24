@@ -4,6 +4,7 @@ import com.google.gson.*;
 import main.protocol.*;
 
 import javax.crypto.*;
+import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.PBEKeySpec;
 import javax.crypto.spec.SecretKeySpec;
@@ -15,6 +16,8 @@ import java.security.spec.InvalidKeySpecException;
 import java.security.spec.KeySpec;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.*;
+
+import static java.nio.charset.StandardCharsets.UTF_8;
 
 public class ClientHandler implements Runnable, ClientToServerResponseProtocol {
     private Socket socket = null;
@@ -133,9 +136,10 @@ public class ClientHandler implements Runnable, ClientToServerResponseProtocol {
         Request request;
         if (!json_str.contains("command")) {
             // encrypted content: extract iv and re-compute json string
-            byte[] iv = Arrays.copyOfRange(json_bytes, 0, 16);
-            json_str = new String(Arrays.copyOfRange(json_bytes, 16, json_bytes.length));
-            String s = decrypt("AES/CBC/PKCS5Padding", json_str, this.sk, new IvParameterSpec(iv));
+            byte[] iv = Arrays.copyOfRange(json_bytes, 0, 12);
+            json_str = new String(Arrays.copyOfRange(json_bytes, 12, json_bytes.length));
+            String s = decrypt("AES/GCM/NoPadding", json_str, this.sk, iv);
+
             Gson gson = new GsonBuilder().registerTypeAdapter(Request.class, new RequestDeserializer()).create();
             request = gson.fromJson(s, Request.class);
         } else {
@@ -148,7 +152,7 @@ public class ClientHandler implements Runnable, ClientToServerResponseProtocol {
     public void sendRequest(Request request) throws IOException, InvalidAlgorithmParameterException, NoSuchPaddingException, IllegalBlockSizeException, NoSuchAlgorithmException, BadPaddingException, InvalidKeyException {
         if (request.getCommand() != ProtocolCommand.REQUEST_EXCHANGE_SERVER_PUBLIC_KEY_KO && request.getCommand() != ProtocolCommand.REQUEST_EXCHANGE_SERVER_PUBLIC_KEY_OK && request.getCommand() != ProtocolCommand.REQUEST_EXCHANGE_SERVER_PUBLIC_KEY_AND_SEND_IV) {
             byte[] iv = this.generateIv();
-            String s = encrypt("AES/CBC/PKCS5Padding", new Gson().toJson(request), this.sk, new IvParameterSpec(iv));
+            String s = encrypt("AES/GCM/NoPadding", new Gson().toJson(request), this.sk, iv);
             this.dos.writeInt(iv.length + s.getBytes().length);
             this.dos.write(iv);
             this.dos.writeBytes(s);
@@ -303,22 +307,24 @@ public class ClientHandler implements Runnable, ClientToServerResponseProtocol {
     }
 
     public byte[] generateIv() {
-        byte[] iv = new byte[16];
+        byte[] iv = new byte[12];
         new SecureRandom().nextBytes(iv);
         return iv;
         //return new IvParameterSpec(iv);
     }
 
-    public String encrypt(String algorithm, String input, SecretKey key, IvParameterSpec iv) throws InvalidAlgorithmParameterException, InvalidKeyException, NoSuchPaddingException, NoSuchAlgorithmException, IllegalBlockSizeException, BadPaddingException {
+    public String encrypt(String algorithm, String input, SecretKey key, byte[] iv) throws InvalidAlgorithmParameterException, InvalidKeyException, NoSuchPaddingException, NoSuchAlgorithmException, IllegalBlockSizeException, BadPaddingException {
         Cipher cipher = Cipher.getInstance(algorithm);
-        cipher.init(Cipher.ENCRYPT_MODE, key, iv);
+        cipher.init(Cipher.ENCRYPT_MODE, key, new GCMParameterSpec(128, iv));
+        cipher.updateAAD("v1".getBytes(UTF_8));
         byte[] cipherText = cipher.doFinal(input.getBytes());
         return Base64.getEncoder().encodeToString(cipherText);
     }
 
-    public String decrypt(String algorithm, String cipherText, SecretKey key, IvParameterSpec iv) throws NoSuchPaddingException, NoSuchAlgorithmException, InvalidAlgorithmParameterException, InvalidKeyException, BadPaddingException, IllegalBlockSizeException {
+    public String decrypt(String algorithm, String cipherText, SecretKey key, byte[] iv) throws NoSuchPaddingException, NoSuchAlgorithmException, InvalidAlgorithmParameterException, InvalidKeyException, BadPaddingException, IllegalBlockSizeException {
         Cipher cipher = Cipher.getInstance(algorithm);
-        cipher.init(Cipher.DECRYPT_MODE, key, iv);
+        cipher.init(Cipher.DECRYPT_MODE, key, new GCMParameterSpec(128, iv));
+        cipher.updateAAD("v1".getBytes(UTF_8));
         byte[] plainText = cipher.doFinal(Base64.getDecoder().decode(cipherText));
         return new String(plainText);
     }
